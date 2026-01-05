@@ -21,6 +21,18 @@ import com.sun.tools.javac.code.Flags;
 import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Type;
 import com.sun.tools.javac.tree.JCTree;
+import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import manifold.ExtIssueMsg;
 import manifold.api.fs.IFile;
 import manifold.api.fs.cache.PathCache;
@@ -37,6 +49,7 @@ import manifold.internal.javac.ClassSymbols;
 import manifold.internal.javac.JavacPlugin;
 import manifold.rt.api.Array;
 import manifold.rt.api.anno.any;
+import manifold.rt.api.util.ManStringUtil;
 import manifold.rt.api.util.Pair;
 import manifold.util.JreUtil;
 import manifold.util.ReflectUtil;
@@ -49,6 +62,9 @@ import java.lang.reflect.Modifier;
 import java.util.*;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
+import manifold.rt.api.util.StreamUtil;
+import manifold.rt.api.util.TempFileUtil;
+import manifold.util.JreUtil;
 
 import static manifold.ext.ExtensionManifold.EXTENSIONS_PACKAGE;
 
@@ -86,6 +102,25 @@ class ExtCodeGen
     {
       // auto-generate a proxy factory for interfaces the extension class implements
       return generateProxyFactory();
+    }
+
+    if (!this.hasDynamicExtensions()) {
+      LinkedHashSet<String> allExtensions = new LinkedHashSet<>();
+      findExtensionsOnDisk(allExtensions);
+
+      for (int i = 0; i < 10; i++) {
+        File cacheFile = this.extensionCache(allExtensions, i);
+        if (cacheFile.exists()) {
+          try (InputStream input = new BufferedInputStream(new FileInputStream(cacheFile))) {
+            String result = this.extractCached(allExtensions, input);
+            if (result != null) {
+              return result;
+            }
+          } catch (IOException e) {
+            throw new RuntimeException(e);
+          }
+        }
+      }
     }
 
     SrcClass srcExtended;
@@ -260,6 +295,7 @@ class ExtCodeGen
     boolean interfaceExtensions = false;
     boolean annotationExtensions = false;
     Set<String> allExtensions = findAllExtensions();
+    Set<String> allExtensionsCopy = new LinkedHashSet<>(allExtensions);
     _model.pushProcessing( _fqn );
     try
     {
@@ -297,13 +333,153 @@ class ExtCodeGen
         {
           return _existingSource;
         }
-        return addExtensionsToExistingClass( extendedClass, methodExtensions, interfaceExtensions, annotationExtensions );
+        String result = addExtensionsToExistingClass( extendedClass, methodExtensions, interfaceExtensions, annotationExtensions );
+        this.storeCache(allExtensionsCopy, result);
+        return result;
       }
-      return extendedClass.render( new StringBuilder(), 0 ).toString();
+      String result = extendedClass.render( new StringBuilder(), 0 ).toString();
+      this.storeCache(allExtensionsCopy, result);
+      return result;
     }
     finally
     {
       _model.popProcessing( _fqn );
+    }
+  }
+
+  private File extensionCache(Set<String> allExtensions) {
+    return this.extensionCache(allExtensions, 0);
+  }
+
+  private File extensionCache(Set<String> allExtensions, int iteration) {
+    String cacheEntry = ManStringUtil.getSHA1String(JreUtil.JAVA_VERSION + _fqn + allExtensions);
+    return TempFileUtil.makeTempFile(cacheEntry + "-" + iteration + ".manifold", false);
+  }
+
+  // TODO: this method ignore base class (but fixing it will reduce performance alot)
+  private String extractCached(Set<String> allExtensions, InputStream input) throws IOException {
+    PathCache pathCache = getModule().getPathCache();
+    DataInputStream dataInput = new DataInputStream(input);
+    if (!dataInput.readUTF().equals("MANIFOLD")) {
+      return null;
+    }
+
+    int extensions = dataInput.readInt();
+    if (extensions != allExtensions.size()) {
+      return null;
+    }
+
+    Set<String> difference = new HashSet<>(allExtensions);
+    for (int i = 0; i < extensions; i++) {
+      difference.remove(dataInput.readUTF());
+    }
+
+    if (!difference.isEmpty()) {
+      return null;
+    }
+
+    Map<String, byte[]> hashes = new HashMap<>();
+    int hashCount = dataInput.readInt();
+    for (int i = 0; i < hashCount; i++) {
+      String path = dataInput.readUTF();
+      byte[] hash = new byte[dataInput.readInt()];
+      dataInput.readFully(hash);
+      hashes.put(path, hash);
+    }
+
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    Set<String> duplicates = new HashSet<>();
+    for (IFile file : _model.getFiles()) {
+      Set<String> name = pathCache.getFqnForFile(file);
+      if (name == null) continue;
+
+      String path = file.getPath().getPathString("/");
+      if (!duplicates.add(path)) {
+        throw new RuntimeException("Duplicate path: " + path);
+      }
+
+      byte[] hash = hashes.remove(path);
+      if (hash == null) {
+        return null;
+      }
+
+      out.reset();
+      try (InputStream lib = file.openInputStream()) {
+        StreamUtil.copy(lib, out);
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+
+      try {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        if (!Arrays.equals(hash, digest.digest(out.toByteArray()))) {
+          return null;
+        }
+      } catch (NoSuchAlgorithmException e) {
+        throw new RuntimeException(e);
+      }
+    }
+
+    out.reset();
+    StreamUtil.copy(input, out);
+
+    return new String(out.toByteArray(), StandardCharsets.UTF_8);
+  }
+
+  private void storeCache(Set<String> extensions, String result) {
+    File cacheFile = this.extensionCache(extensions);
+
+    int index = 1;
+    while (cacheFile.exists() && index < 10) {
+      cacheFile = this.extensionCache(extensions, index++);
+    }
+
+    try (FileOutputStream cacheOutput = new FileOutputStream(cacheFile)) {
+      DataOutputStream data = new DataOutputStream(cacheOutput);
+      data.writeUTF("MANIFOLD");
+      data.writeInt(extensions.size());
+      for (String extension : extensions) {
+        data.writeUTF(extension);
+      }
+
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      List<IFile> files = new ArrayList<>();
+      PathCache pathCache = getModule().getPathCache();
+      for (IFile file : _model.getFiles()) {
+        Set<String> name = pathCache.getFqnForFile(file);
+        if (name != null) {
+          files.add(file);
+        }
+      }
+
+      Set<String> duplicates = new HashSet<>();
+      data.writeInt(files.size());
+      for (IFile file : files) {
+        String path = file.getPath().getPathString("/");
+        if (!duplicates.add(path)) {
+          throw new RuntimeException("Duplicate path: " + path);
+        }
+
+        out.reset();
+        try (InputStream lib = file.openInputStream()) {
+          StreamUtil.copy(lib, out);
+        }
+
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        data.writeUTF(path);
+        byte[] digestBytes = digest.digest(out.toByteArray());
+        data.writeInt(digestBytes.length);
+        data.write(digestBytes);
+      }
+
+      data.write(result.getBytes(StandardCharsets.UTF_8));
+      System.out.println(" > stored extension cache for " + _fqn + " to " + cacheFile);
+    } catch (Throwable e) {
+      System.out.println(" > failed to store extension cache to " + cacheFile);
+      e.printStackTrace(System.out);
+      if (!cacheFile.delete()) {
+        System.out.println(" > failed to delete extension cache at " + cacheFile);
+      }
     }
   }
 
@@ -496,6 +672,18 @@ class ExtCodeGen
       method.render( sb, 2 );
     }
     sb.append( "\n}" );
+  }
+
+  private boolean hasDynamicExtensions() {
+    ExtensionManifold extensionManifold = _model.getTypeManifold();
+    for (ITypeManifold tm : extensionManifold.getModule().getTypeManifolds()) {
+      if (tm != extensionManifold && tm instanceof IExtensionClassProducer
+          && !((IExtensionClassProducer) tm).getExtensionClasses(_model.getFqn()).isEmpty()) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private Set<String> findAllExtensions()
