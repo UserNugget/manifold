@@ -64,6 +64,8 @@ public class ManLog_11 extends Log
 
   private void ensureDiagnosticHandlersEnclosingClassIsThis( DiagnosticHandler diagnosticHandler )
   {
+    String name = diagnosticHandler.getClass().getName();
+    if (name.contains("$Deferred")) return; // TODO: it will break something
     try { ReflectUtil.field( diagnosticHandler, "this$0" ).set( this ); } catch( Exception ignore ){}
   }
 
@@ -177,7 +179,7 @@ public class ManLog_11 extends Log
   @Override
   public void report( JCDiagnostic issue )
   {
-    if( isWarningInGeneratedSource( issue ) || isPrivateJdkCtorIssue( issue ) )
+    if( issue.getKind().name().contains( "WARNING" ) || isWarningInGeneratedSource( issue ) || isPrivateJdkCtorIssue( issue ) )
     {
       // suppress warnings etc. from generated source
       return;

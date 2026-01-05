@@ -26,19 +26,23 @@ import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.TreeMaker;
 import com.sun.tools.javac.util.Context;
 import com.sun.tools.javac.util.Log;
+import com.sun.tools.javac.util.Name;
+import com.sun.tools.javac.util.Names;
 import manifold.api.util.IssueMsg;
-import manifold.rt.api.util.ManClassUtil;
 import manifold.util.JreUtil;
 import manifold.util.ReflectUtil;
 import manifold.util.concurrent.LocklessLazyVar;
 
 import static manifold.internal.javac.ManAttr.AUTO_TYPE;
+import static manifold.internal.javac.ManAttr.AUTO_TYPE_CLASS;
 
 public class ManTransTypes extends TransTypes
 {
   private static final String TRANS_TYPES_FIELD = "transTypes";
 
   private int _translateCount;
+  private final Name autoType;
+  private final Name autoTypeClass;
 
   public static TransTypes instance( Context ctx )
   {
@@ -57,6 +61,9 @@ public class ManTransTypes extends TransTypes
     super( ctx );
     ReflectUtil.field( JavaCompiler.instance( ctx ), TRANS_TYPES_FIELD ).set( this );
     ReflectUtil.field( LambdaToMethod.instance( ctx ), TRANS_TYPES_FIELD ).set( this );
+
+    autoType = Names.instance( ctx ).fromString( AUTO_TYPE );
+    autoTypeClass = Names.instance( ctx ).fromString( AUTO_TYPE_CLASS );
   }
 
   /**
@@ -113,7 +120,7 @@ public class ManTransTypes extends TransTypes
 
   private boolean isAutoType( JCTree.JCIdent tree )
   {
-    return ManClassUtil.getShortClassName( AUTO_TYPE ).equals( tree.name.toString() ) ||
-      AUTO_TYPE.equals( tree.name.toString() );
+    return this.autoTypeClass.equals( tree.name ) ||
+        this.autoType.equals( tree.name );
   }
 }

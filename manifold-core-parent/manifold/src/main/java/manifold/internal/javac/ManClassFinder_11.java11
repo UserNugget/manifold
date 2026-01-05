@@ -113,12 +113,6 @@ public class ManClassFinder_11 extends ClassFinder
     // call the extension class methods directly.
 
     Modules modules = Modules.instance( _ctx );
-    Set<Symbol.ModuleSymbol> recoverableModules = new HashSet<>( modules.allModules() );
-
-    recoverableModules.remove( msym );
-
-    recoverableModules.add( _symtab.unnamedModule );
-
     Symtab symtab = Symtab.instance( _ctx );
 
 //
@@ -133,15 +127,10 @@ public class ManClassFinder_11 extends ClassFinder
 
     //addJavaSeModule( recoverableModules );
 
-    for( Symbol.ModuleSymbol ms : recoverableModules )
     {
-      if( ms.classLocation == null )
-      {
-        ms = _moduleFinder.findModule( ms );
-      }
+        Symbol.ModuleSymbol ms = _symtab.unnamedModule;
+        if( ms.classLocation == null ) ms = _moduleFinder.findModule( ms );
 
-      if( ms.kind != ERR )
-      {
         Symbol.ClassSymbol maybe = null;
         try
         {
@@ -155,7 +144,6 @@ public class ManClassFinder_11 extends ClassFinder
         {
           return maybe;
         }
-      }
     }
 
     return null;

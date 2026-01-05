@@ -67,6 +67,7 @@ public interface ManAttr
   long RECORD = 1L << 61; // from Flags in newer JDKs
 
   String AUTO_TYPE = "manifold.ext.rt.api.auto";
+  String AUTO_TYPE_CLASS = ManClassUtil.getShortClassName( AUTO_TYPE );
 
   Object Kind_TYP = JreUtil.isJava8()
     ? ReflectUtil.field( Kinds.class, "TYP" ).getStatic()
@@ -658,12 +659,23 @@ public interface ManAttr
   {
     return sym != null && Objects.equals( ReflectUtil.field( sym, "kind" ).get(), Kind_TYP );
   }
+
+  ReflectUtil.LiveMethodRef JDK25_AttrDiagHandler = getJDK25AttrDiagHandler();
+
+  static ReflectUtil.LiveMethodRef getJDK25AttrDiagHandler()
+  {
+    if ( JreUtil.isJava25orLater() )
+    {
+      return ReflectUtil.method( ReflectUtil.constructor( "manifold.internal.javac.DeferredAttrDiagHandler_25" ).newInstance(), "make", Context.class, JCTree.class );
+    }
+
+    return null;
+  }
+
   default IDeferredAttrDiagHandler suppressDiagnositics( JCTree.JCFieldAccess tree )
   {
     return JreUtil.isJava25orLater()
-           ? (IDeferredAttrDiagHandler)ReflectUtil.method(
-               ReflectUtil.constructor( "manifold.internal.javac.DeferredAttrDiagHandler_25" ).newInstance(), "make", Context.class, JCTree.class )
-              .invoke( JavacPlugin.instance().getContext(), tree )
+           ? (IDeferredAttrDiagHandler) JDK25_AttrDiagHandler.invoke( JavacPlugin.instance().getContext(), tree )
            : (IDeferredAttrDiagHandler)ReflectUtil.constructor( "manifold.internal.javac.DeferredAttrDiagHandler_8$DeferredAttrDiagHandler", Log.class, JCTree.class )
              .newInstance( getLogger(), tree );
   }

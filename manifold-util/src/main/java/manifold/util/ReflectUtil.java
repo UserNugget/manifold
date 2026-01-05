@@ -1497,6 +1497,12 @@ public class ReflectUtil
 
     public static LiveFieldRef field( Object receiver, String name )
     {
+      Field field = ReflectUtil.getRawFieldFromCache( receiver.getClass(), name );
+      if ( field != null )
+      {
+        return new LiveFieldRef( field, receiver );
+      }
+
       FieldRef ref = ReflectUtil.field( receiver.getClass(), name );
       if( ref == null )
       {
