@@ -18,7 +18,9 @@ package manifold.api.gen;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -336,7 +338,15 @@ public class SrcType extends SrcAnnotated<SrcType>
       {
         sbFqn.append( _fqn, 0, iDot + 1 );
       }
-      renderAnnotations( sbFqn, 1, true );
+      // quirk for handling array annotations
+      Set<String> deduplication = new HashSet<>();
+      for( SrcAnnotationExpression anno : getAnnotations() )
+      {
+        if ( deduplication.add(anno.getAnnotationType()) )
+        {
+          anno.render( sbFqn, 1, true );
+        }
+      }
       sbFqn.append( ' ' ).append( _fqn.substring( iDot+1 ) );
       fqn = sbFqn.toString();
     }
