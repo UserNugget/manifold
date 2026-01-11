@@ -1995,6 +1995,23 @@ public class PropertyProcessor implements ICompilerComponent, TaskListener
           return true;
 
         case PROTECTED:
+          // javac should've generated access$... method, but manifold removed `protected` access preventing this.
+          // code below avoids it by enforcing getter instead of access$...
+          if ( sym.owner.owner != classDecl.sym.owner && sym.packge() != classDecl.sym.packge() )
+          {
+            Types types = Types.instance( _context );
+            if ( !classDecl.sym.isSubClass( sym.owner, types ) )
+            {
+              return false;
+            }
+
+            if ( (sym.flags() & STATIC) == 0 && tree.hasTag( Tag.SELECT )
+                && !((JCFieldAccess) tree).selected.type.tsym.isSubClass( classDecl.sym, types ) )
+            {
+              return false;
+            }
+          }
+
           // subclass of field's class
           if( classDecl.sym.isSubClass( sym.enclClass(), Types.instance( _context ) ) )
           {
