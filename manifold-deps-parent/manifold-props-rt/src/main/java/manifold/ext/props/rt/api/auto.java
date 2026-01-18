@@ -27,7 +27,7 @@ import java.lang.annotation.Target;
  * Tags a property field as auto-generated during property inference.
  */
 @Target( ElementType.FIELD )
-@Retention( RetentionPolicy.CLASS )
+@Retention( RetentionPolicy.SOURCE )
 public @interface auto
 {
   /**

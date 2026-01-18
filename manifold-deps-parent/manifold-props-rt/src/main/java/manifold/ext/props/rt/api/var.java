@@ -59,7 +59,7 @@ import java.lang.annotation.Target;
  * @see set
  */
 @Target( ElementType.FIELD )
-@Retention( RetentionPolicy.CLASS )
+@Retention( RetentionPolicy.SOURCE )
 public @interface var
 {
   /**

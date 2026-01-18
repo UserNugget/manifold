@@ -35,7 +35,7 @@ import java.lang.annotation.Target;
  * @see var
  */
 @Target( {ElementType.FIELD} )
-@Retention( RetentionPolicy.CLASS )
+@Retention( RetentionPolicy.SOURCE )
 public @interface set
 {
   /**
