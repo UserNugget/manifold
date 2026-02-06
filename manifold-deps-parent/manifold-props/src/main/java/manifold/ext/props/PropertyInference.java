@@ -458,7 +458,8 @@ class PropertyInference
         int declaredAccess = (int)exField.flags_field & (PUBLIC | PROTECTED | PRIVATE);
         if( isExitingFieldAccessible( classSym, exField, declaredAccess ) )
         {
-          if( exField.enclClass() == classSym )
+          // do not change metadata when compiler is doing its things, or it will crash
+          if( exField.enclClass() == classSym && !exField.annotationsPendingCompletion() )
           {
             // make the existing field accessible according to the weakest of property methods
             exField.flags_field = exField.flags_field & ~(PUBLIC | PROTECTED | PRIVATE) | weakest;
